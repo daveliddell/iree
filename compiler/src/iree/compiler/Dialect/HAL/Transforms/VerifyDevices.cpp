@@ -121,6 +121,26 @@ struct VerifyDevicesPass
       return;
     }
 
+    // Devices are only required if we have dialects we may lower into device
+    // code. For now checking for tensor types is probably sufficient though we
+    // may want a pluggable way to decide this (e.g. dialect/type/op
+    // interfaces).
+    auto isTensor = [](Type type) { return isa<TensorType>(type); };
+    bool anyTensors = false;
+    for (auto &op : moduleOp.getOps()) {
+      if (isa<IREE::HAL::ExecutableOp>(op)) {
+        continue; // ignore executables
+      }
+      if (llvm::any_of(op.getOperandTypes(), isTensor) ||
+          llvm::any_of(op.getResultTypes(), isTensor)) {
+        anyTensors = true;
+        break;
+      }
+    }
+    if (!anyTensors) {
+      return;
+    }
+
     // Analyze the module to find all devices.
     DeviceAnalysis deviceAnalysis(moduleOp);
     if (failed(deviceAnalysis.run())) {
@@ -133,7 +153,7 @@ struct VerifyDevicesPass
       diagnostic
           << "no HAL devices defined in the module; use the module-level "
              "hal.device.targets attribute, the --iree-hal-target-device= "
-             "flags, or provide inputs with global !hal.devices defined; ";
+             "flag, or provide inputs with global !hal.devices defined; ";
       printAvailable(diagnostic, *targetRegistry.value);
       return signalPassFailure();
     }
